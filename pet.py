@@ -2,17 +2,40 @@ import os
 import time
 import random
 import ctypes
+from ctypes import wintypes
 import tkinter as tk
 from PIL import Image, ImageTk
 from pynput import keyboard
 
 clavier_simule = keyboard.Controller()
 
-class POINT(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hwndActive", wintypes.HWND),
+        ("hwndFocus", wintypes.HWND),
+        ("hwndCapture", wintypes.HWND),
+        ("hwndMenuOwner", wintypes.HWND),
+        ("hwndMoveSize", wintypes.HWND),
+        ("hwndCaret", wintypes.HWND),
+        ("rcCaret", wintypes.RECT)
+    ]
 
-def get_souris_pos():
-    pt = POINT()
+def get_exact_typing_pos():
+    # 1. tente de chopper la position exacte du curseur texte (caret)
+    try:
+        gui = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)) and gui.hwndCaret:
+            pt = wintypes.POINT(gui.rcCaret.left, gui.rcCaret.top)
+            ctypes.windll.user32.ClientToScreen(gui.hwndCaret, ctypes.byref(pt))
+            if pt.x > -1000 and pt.y > -500:
+                return pt.x, pt.y
+    except Exception:
+        pass
+        
+    # 2. fallback position souris
+    pt = wintypes.POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
     return pt.x, pt.y
 
@@ -85,7 +108,7 @@ class RootPet:
             return
             
         self.faute_en_cours = faute_info
-        sx, sy = get_souris_pos()
+        sx, sy = get_exact_typing_pos()
         
         self.souris_memo_x = min(max(virt_x + 20, sx - (self.largeur_fen // 2)), virt_x + virt_w - self.largeur_fen - 20)
         self.souris_memo_y = min(max(virt_y + 20, sy - self.taille_sprite - 20), virt_y + virt_h - self.hauteur_fen - 50)
@@ -97,7 +120,7 @@ class RootPet:
 
     def actualiser(self):
         v_marche = 3
-        v_sprint = 18
+        v_sprint = 20
         
         if self.etat == "marche":
             self.pos_x += self.direction * v_marche
@@ -161,7 +184,7 @@ class RootPet:
                 texte_propre = self.faute_en_cours["texte_corrige"] + " "
                 clavier_simule.type(texte_propre)
                 
-                self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
+                self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#00ffcc")
                 self.fenetre.after(1600, self.finir_remise)
                 
         self.fenetre.geometry(f"{self.largeur_fen}x{self.hauteur_fen}+{int(self.pos_x)}+{int(self.pos_y)}")
@@ -171,7 +194,7 @@ class RootPet:
             self.num_frame = (self.num_frame + 1) % len(frames)
             self.label_root.configure(image=frames[self.num_frame])
             
-        delai = 70 if "cours" in self.etat or "fuite" in self.etat or "retour" in self.etat else 110
+        delai = 65 if "cours" in self.etat or "fuite" in self.etat or "retour" in self.etat else 110
         self.fenetre.after(delai, self.actualiser)
 
     def retour_corrige(self):
