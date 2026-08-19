@@ -23,7 +23,6 @@ class GUITHREADINFO(ctypes.Structure):
     ]
 
 def get_exact_typing_pos():
-    # 1. tente de chopper la position exacte du curseur texte (caret)
     try:
         gui = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
         if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)) and gui.hwndCaret:
@@ -34,7 +33,6 @@ def get_exact_typing_pos():
     except Exception:
         pass
         
-    # 2. fallback position souris
     pt = wintypes.POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
     return pt.x, pt.y
@@ -69,6 +67,7 @@ class RootPet:
         self.frames_gauche = []
         self.charger_sprites()
         
+        # texte blanc pur sans fond et sans couleur verte
         self.label_texte = tk.Label(
             self.fenetre,
             text="",
@@ -143,6 +142,7 @@ class RootPet:
                 self.pos_x += (dx / dist) * v_sprint
                 self.pos_y += (dy / dist) * v_sprint
             else:
+                # arrive sur place : efface la phrase
                 self.pos_x = self.cible_x
                 self.pos_y = self.cible_y
                 
@@ -152,6 +152,7 @@ class RootPet:
                     clavier_simule.release(keyboard.Key.backspace)
                     time.sleep(0.01)
                     
+                # affiche le texte vole en blanc au-dessus de root
                 self.label_texte.configure(text=f"{self.faute_en_cours['texte_original']}", fg="#ffffff")
                 self.bord_sortie_x = virt_x - 200 if self.pos_x < (virt_x + virt_w / 2) else virt_x + virt_w + 100
                 self.etat = "fuite_hors_ecran"
@@ -181,10 +182,12 @@ class RootPet:
                 self.pos_y = self.souris_memo_y
                 self.etat = "depose"
                 
+                # retape la phrase corrigee
                 texte_propre = self.faute_en_cours["texte_corrige"] + " "
                 clavier_simule.type(texte_propre)
                 
-                self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#00ffcc")
+                # texte reste blanc au-dessus de sa tete
+                self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
                 self.fenetre.after(1600, self.finir_remise)
                 
         self.fenetre.geometry(f"{self.largeur_fen}x{self.hauteur_fen}+{int(self.pos_x)}+{int(self.pos_y)}")
