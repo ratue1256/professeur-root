@@ -6,6 +6,7 @@ from ctypes import wintypes
 import tkinter as tk
 from PIL import Image, ImageTk
 from pynput import keyboard
+from clavier import bloquer, debloquer
 
 clavier_simule = keyboard.Controller()
 
@@ -67,7 +68,6 @@ class RootPet:
         self.frames_gauche = []
         self.charger_sprites()
         
-        # texte blanc pur sans fond et sans couleur verte
         self.label_texte = tk.Label(
             self.fenetre,
             text="",
@@ -106,6 +106,7 @@ class RootPet:
         if self.etat not in ("marche", "pause"):
             return
             
+        bloquer() # bloque la frappe pendant l action de root
         self.faute_en_cours = faute_info
         sx, sy = get_exact_typing_pos()
         
@@ -142,7 +143,6 @@ class RootPet:
                 self.pos_x += (dx / dist) * v_sprint
                 self.pos_y += (dy / dist) * v_sprint
             else:
-                # arrive sur place : efface la phrase
                 self.pos_x = self.cible_x
                 self.pos_y = self.cible_y
                 
@@ -152,7 +152,6 @@ class RootPet:
                     clavier_simule.release(keyboard.Key.backspace)
                     time.sleep(0.01)
                     
-                # affiche le texte vole en blanc au-dessus de root
                 self.label_texte.configure(text=f"{self.faute_en_cours['texte_original']}", fg="#ffffff")
                 self.bord_sortie_x = virt_x - 200 if self.pos_x < (virt_x + virt_w / 2) else virt_x + virt_w + 100
                 self.etat = "fuite_hors_ecran"
@@ -182,11 +181,9 @@ class RootPet:
                 self.pos_y = self.souris_memo_y
                 self.etat = "depose"
                 
-                # retape la phrase corrigee
                 texte_propre = self.faute_en_cours["texte_corrige"] + " "
                 clavier_simule.type(texte_propre)
                 
-                # texte reste blanc au-dessus de sa tete
                 self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
                 self.fenetre.after(1600, self.finir_remise)
                 
@@ -209,6 +206,7 @@ class RootPet:
         self.label_texte.configure(text="")
         self.faute_en_cours = None
         self.etat = "marche"
+        debloquer() # debloque la frappe clavier
 
     def reprendre_marche(self):
         if self.etat == "pause":
