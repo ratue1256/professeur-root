@@ -1,66 +1,77 @@
 import time
 import os
 from pynput import keyboard
-from ia import analyser_texte
+from ia import check_sentence_errors
 
-# simule les touches pour effacer et reecrire
-clavier_simule = keyboard.Controller()
-buffer_phrase = ""
-dernier_temps = 0
-callback_faute = None
-bloquer_saisie = False
+# Controleur pynput pour la simulation de frappe
+key_controller = keyboard.Controller()
 
-def bloquer():
-    global bloquer_saisie
-    bloquer_saisie = True
+# Buffer de texte pour accumuler la phrase courante
+current_buffer = ""
+last_keystroke_ts = 0.0
+on_error_found = None
+is_input_locked = False
 
-def debloquer():
-    global bloquer_saisie
-    bloquer_saisie = False
+def lock_input():
+    global is_input_locked
+    is_input_locked = True
 
-def initialiser_clavier(callback):
-    global callback_faute
-    callback_faute = callback
-    listener = keyboard.Listener(on_press=touche_pressee)
+def unlock_input():
+    global is_input_locked
+    is_input_locked = False
+
+def start_keyboard_listener(on_typo_callback):
+    global on_error_found
+    on_error_found = on_typo_callback
+    
+    # Listener global en daemon thread
+    listener = keyboard.Listener(on_press=handle_key_press)
     listener.daemon = True
     listener.start()
 
-def touche_pressee(key):
-    global buffer_phrase, dernier_temps, bloquer_saisie
-    # evite que l utilisateur tape pendant que root reecrit
-    if bloquer_saisie:
+def handle_key_press(key):
+    global current_buffer, last_keystroke_ts, is_input_locked
+    
+    # Bloque les touches utilisateurs pendant que Root efface / retape
+    if is_input_locked:
         return
         
     try:
         if hasattr(key, "char") and key.char:
-            buffer_phrase += key.char
-            dernier_temps = time.time()
+            current_buffer += key.char
+            last_keystroke_ts = time.time()
+            # Si ponctuation de fin de phrase, on analyse direct
             if key.char in (".", "!", "?"):
-                verifier_et_nettoyer(forcer_reset=True)
+                process_buffer(force_reset=True)
         elif key == keyboard.Key.space:
-            buffer_phrase += " "
-            dernier_temps = time.time()
+            current_buffer += " "
+            last_keystroke_ts = time.time()
         elif key == keyboard.Key.enter:
-            verifier_et_nettoyer(forcer_reset=True)
+            # Sur Entree, verifie avant de valider
+            process_buffer(force_reset=True)
         elif key == keyboard.Key.backspace:
-            buffer_phrase = buffer_phrase[:-1]
-    except Exception:
+            if current_buffer:
+                current_buffer = current_buffer[:-1]
+    except (AttributeError, TypeError):
         pass
 
-def verifier_et_nettoyer(forcer_reset=False):
-    global buffer_phrase
-    phrase = buffer_phrase.strip()
-    if phrase and len(phrase) >= 3:
-        res = analyser_texte(phrase)
-        if res and callback_faute:
-            bloquer()
-            buffer_phrase = ""
-            callback_faute(res)
-        elif forcer_reset:
-            buffer_phrase = ""
+def process_buffer(force_reset=False):
+    global current_buffer
+    raw_text = current_buffer.strip()
+    
+    # On n'analyse que si on a au moins 3 caracteres
+    if raw_text and len(raw_text) >= 3:
+        correction_result = check_sentence_errors(raw_text)
+        if correction_result and on_error_found:
+            lock_input()
+            current_buffer = ""
+            on_error_found(correction_result)
+        elif force_reset:
+            current_buffer = ""
 
-def verifier_pause():
-    global buffer_phrase, dernier_temps, bloquer_saisie
-    # declenche si la personne s arrete d ecrire
-    if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 0.9:
-        verifier_et_nettoyer(forcer_reset=False)
+def check_typing_pause():
+    global current_buffer, last_keystroke_ts, is_input_locked
+    # Si l'utilisateur s'arrete d'ecrire pendant ~900ms, on analyse
+    if not is_input_locked and current_buffer.strip():
+        if time.time() - last_keystroke_ts > 0.9:
+            process_buffer(force_reset=False)

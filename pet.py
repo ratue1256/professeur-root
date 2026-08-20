@@ -1,15 +1,17 @@
-import time
 import os
+import time
 import random
 import ctypes
 from ctypes import wintypes
 import tkinter as tk
 from PIL import Image, ImageTk
 from pynput import keyboard
-from clavier import bloquer, debloquer
+from clavier import lock_input, unlock_input
 
-clavier_simule = keyboard.Controller()
+# Controleur pour la frappe simulee
+simulated_kb = keyboard.Controller()
 
+# Structure Win32 pour recuperer la position du curseur texte (Caret)
 class GUITHREADINFO(ctypes.Structure):
     _fields_ = [
         ("cbSize", wintypes.DWORD),
@@ -23,232 +25,252 @@ class GUITHREADINFO(ctypes.Structure):
         ("rcCaret", wintypes.RECT)
     ]
 
-# gestion du multi ecran sous windows
-virt_x = ctypes.windll.user32.GetSystemMetrics(76)
-virt_y = ctypes.windll.user32.GetSystemMetrics(77)
-virt_w = ctypes.windll.user32.GetSystemMetrics(78)
-virt_h = ctypes.windll.user32.GetSystemMetrics(79)
+# Recuperation des dimensions du bureau virtuel (support multi-ecrans)
+# 76 = SM_XVIRTUALSCREEN, 77 = SM_YVIRTUALSCREEN, 78 = SM_CXVIRTUALSCREEN, 79 = SM_CYVIRTUALSCREEN
+VIRT_SCREEN_X = ctypes.windll.user32.GetSystemMetrics(76)
+VIRT_SCREEN_Y = ctypes.windll.user32.GetSystemMetrics(77)
+VIRT_SCREEN_W = ctypes.windll.user32.GetSystemMetrics(78)
+VIRT_SCREEN_H = ctypes.windll.user32.GetSystemMetrics(79)
 
-def get_exact_typing_pos():
-    # essaye de chopper le curseur texte ou la fenetre active
+def fetch_active_input_coordinates():
+    # 1. Tentative d'obtention de la position exacte du caret dans l'application active
     try:
-        gui = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
-        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)):
-            if gui.hwndCaret:
-                pt = wintypes.POINT(gui.rcCaret.left, gui.rcCaret.top)
-                ctypes.windll.user32.ClientToScreen(gui.hwndCaret, ctypes.byref(pt))
-                if pt.x > -2000 and pt.y > virt_y:
-                    return pt.x, pt.y
-            if gui.hwndFocus:
-                rect = wintypes.RECT()
-                ctypes.windll.user32.GetWindowRect(gui.hwndFocus, ctypes.byref(rect))
-                return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
+        thread_info = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(thread_info)):
+            if thread_info.hwndCaret:
+                caret_pt = wintypes.POINT(thread_info.rcCaret.left, thread_info.rcCaret.top)
+                ctypes.windll.user32.ClientToScreen(thread_info.hwndCaret, ctypes.byref(caret_pt))
+                if caret_pt.x > -2000 and caret_pt.y > VIRT_SCREEN_Y:
+                    return caret_pt.x, caret_pt.y
+                    
+            # 2. Si le caret n'est pas expose (ex: Electron / Chrome), on utilise la fenetre avec le focus
+            if thread_info.hwndFocus:
+                focus_rect = wintypes.RECT()
+                ctypes.windll.user32.GetWindowRect(thread_info.hwndFocus, ctypes.byref(focus_rect))
+                center_x = (focus_rect.left + focus_rect.right) // 2
+                center_y = (focus_rect.top + focus_rect.bottom) // 2
+                return center_x, center_y
                 
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
-        if hwnd:
-            rect = wintypes.RECT()
-            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
-            if rect.right > rect.left and rect.bottom > rect.top:
-                return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
-    except Exception:
+        # 3. Fallback sur la fenetre au premier plan
+        active_hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if active_hwnd:
+            win_rect = wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(active_hwnd, ctypes.byref(win_rect))
+            if win_rect.right > win_rect.left and win_rect.bottom > win_rect.top:
+                return (win_rect.left + win_rect.right) // 2, (win_rect.top + win_rect.bottom) // 2
+    except (OSError, ValueError):
         pass
-        
-    # fallback sur la souris au cas ou
-    pt = wintypes.POINT()
-    ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-    return pt.x, pt.y
+
+    # 4. Dernier recours : position de la souris
+    mouse_pt = wintypes.POINT()
+    ctypes.windll.user32.GetCursorPos(ctypes.byref(mouse_pt))
+    return mouse_pt.x, mouse_pt.y
+
 
 class RootPet:
-    def __init__(self, fenetre):
-        self.fenetre = fenetre
-        self.taille_sprite = 90
-        self.largeur_fen = 340
-        self.hauteur_fen = 140
-        self.y_sol = virt_y + virt_h - self.hauteur_fen - 60
+    def __init__(self, tk_root):
+        self.root_window = tk_root
+        self.sprite_size = 90
+        self.window_w = 340
+        self.window_h = 140
+        self.ground_y = VIRT_SCREEN_Y + VIRT_SCREEN_H - self.window_h - 60
         
-        self.pos_x = virt_x + random.randint(200, max(300, virt_w - 400))
-        self.pos_y = self.y_sol
-        self.direction = 1
-        self.etat = "marche"
+        # Position initiale au sol
+        self.pos_x = VIRT_SCREEN_X + random.randint(200, max(300, VIRT_SCREEN_W - 400))
+        self.pos_y = self.ground_y
+        self.walk_direction = 1  # 1 = droite, -1 = gauche
+        self.current_state = "walking"
         
-        self.cible_x = self.pos_x
-        self.cible_y = self.pos_y
-        self.souris_memo_x = self.pos_x
-        self.souris_memo_y = self.pos_y
+        # Cibles de deplacement
+        self.target_x = self.pos_x
+        self.target_y = self.pos_y
+        self.memo_caret_x = self.pos_x
+        self.memo_caret_y = self.pos_y
         
-        self.faute_en_cours = None
-        self.bord_sortie_x = 0
-        self.num_frame = 0
+        self.active_typo_data = None
+        self.offscreen_exit_x = 0
+        self.frame_index = 0
         
-        self.frames_droite = []
-        self.frames_gauche = []
-        self.charger_sprites()
+        self.right_frames = []
+        self.left_frames = []
+        self.load_all_sprites()
         
-        # label texte blanc au dessus de root
-        self.label_texte = tk.Label(
-            self.fenetre,
+        # Affichage du texte blanc flottant (phrase originale puis corrigee)
+        self.text_label = tk.Label(
+            self.root_window,
             text="",
             fg="#ffffff",
             bg="#000001",
             font=("Segoe UI", 11, "bold")
         )
-        self.label_texte.pack(side="top", pady=(0, 2))
+        self.text_label.pack(side="top", pady=(0, 2))
         
-        self.label_root = tk.Label(self.fenetre, bg="#000001", bd=0)
-        self.label_root.pack(side="top")
+        # Sprite de Root
+        self.sprite_label = tk.Label(self.root_window, bg="#000001", bd=0)
+        self.sprite_label.pack(side="top")
         
-        # drag and drop a la souris
-        self.drag_x = 0
-        self.drag_y = 0
-        self.label_root.bind("<Button-1>", self.debut_glisser)
-        self.label_root.bind("<B1-Motion>", self.glisser)
+        # Drag and drop manuel a la souris
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.sprite_label.bind("<Button-1>", self.on_drag_start)
+        self.sprite_label.bind("<B1-Motion>", self.on_drag_motion)
 
-    def charger_sprites(self):
-        dossier = os.path.join(os.path.dirname(__file__), "asset")
+    def load_all_sprites(self):
+        assets_dir = os.path.join(os.path.dirname(__file__), "asset")
         for i in range(1, 9):
-            chemin = os.path.join(dossier, f"Root{i}.png")
-            if os.path.exists(chemin):
-                img = Image.open(chemin).convert("RGBA")
-                bbox = (200, 0, 1800, 2000)
-                img = img.crop(bbox)
-                img = img.resize((self.taille_sprite, self.taille_sprite), Image.Resampling.LANCZOS)
+            sprite_path = os.path.join(assets_dir, f"Root{i}.png")
+            if os.path.exists(sprite_path):
+                img = Image.open(sprite_path).convert("RGBA")
+                # Decoupage du cadrage pour centrer le personnage
+                crop_box = (200, 0, 1800, 2000)
+                img = img.crop(crop_box)
+                img = img.resize((self.sprite_size, self.sprite_size), Image.Resampling.LANCZOS)
                 
-                bg = Image.new("RGBA", img.size, (0, 0, 1, 255))
-                img_d = Image.alpha_composite(bg, img)
-                img_g = Image.alpha_composite(bg, img.transpose(Image.FLIP_LEFT_RIGHT))
+                # Fond de transparence
+                bg_plate = Image.new("RGBA", img.size, (0, 0, 1, 255))
+                img_right = Image.alpha_composite(bg_plate, img)
+                img_left = Image.alpha_composite(bg_plate, img.transpose(Image.FLIP_LEFT_RIGHT))
                 
-                self.frames_droite.append(ImageTk.PhotoImage(img_d))
-                self.frames_gauche.append(ImageTk.PhotoImage(img_g))
+                self.right_frames.append(ImageTk.PhotoImage(img_right))
+                self.left_frames.append(ImageTk.PhotoImage(img_left))
 
-    def declencher_faute(self, faute_info):
-        if self.etat not in ("marche", "pause"):
+    def on_error_detected(self, error_payload):
+        # Ne declenche que si Root est en train de se balader
+        if self.current_state not in ("walking", "idle_pause"):
             return
             
-        bloquer()
-        self.faute_en_cours = faute_info
-        sx, sy = get_exact_typing_pos()
+        lock_input()
+        self.active_typo_data = error_payload
+        caret_x, caret_y = fetch_active_input_coordinates()
         
-        self.souris_memo_x = min(max(virt_x + 20, sx - (self.largeur_fen // 2)), virt_x + virt_w - self.largeur_fen - 20)
-        self.souris_memo_y = min(max(virt_y + 40, sy - self.taille_sprite - 20), self.y_sol)
+        # Calcul de la position cible au dessus du texte
+        self.memo_caret_x = min(max(VIRT_SCREEN_X + 20, caret_x - (self.window_w // 2)), VIRT_SCREEN_X + VIRT_SCREEN_W - self.window_w - 20)
+        self.memo_caret_y = min(max(VIRT_SCREEN_Y + 40, caret_y - self.sprite_size - 20), self.ground_y)
         
-        self.cible_x = self.souris_memo_x
-        self.cible_y = self.souris_memo_y
-        self.direction = 1 if self.cible_x > self.pos_x else -1
-        self.etat = "cours_vers_souris"
+        self.target_x = self.memo_caret_x
+        self.target_y = self.memo_caret_y
+        self.walk_direction = 1 if self.target_x > self.pos_x else -1
+        self.current_state = "sprinting_to_caret"
 
-    def actualiser(self):
-        v_marche = 3
-        v_sprint = 32
+    def update_animation(self):
+        walk_speed = 3
+        sprint_speed = 32
         
-        if self.etat == "marche":
-            self.pos_x += self.direction * v_marche
-            if self.pos_x >= virt_x + virt_w - self.largeur_fen - 20:
-                self.direction = -1
-            elif self.pos_x <= virt_x + 20:
-                self.direction = 1
+        if self.current_state == "walking":
+            self.pos_x += self.walk_direction * walk_speed
+            # Rebond sur les bords d'ecran
+            if self.pos_x >= VIRT_SCREEN_X + VIRT_SCREEN_W - self.window_w - 20:
+                self.walk_direction = -1
+            elif self.pos_x <= VIRT_SCREEN_X + 20:
+                self.walk_direction = 1
                 
-            # redescend vers le sol si besoin
-            if self.pos_y < self.y_sol:
-                self.pos_y += min(4, self.y_sol - self.pos_y)
-            elif self.pos_y > self.y_sol:
-                self.pos_y = self.y_sol
+            # Descente progressive vers le sol si Root etait en hauteur
+            if self.pos_y < self.ground_y:
+                self.pos_y += min(4, self.ground_y - self.pos_y)
+            elif self.pos_y > self.ground_y:
+                self.pos_y = self.ground_y
                 
+            # Pause aleatoire de temps en temps
             if random.random() < 0.012:
-                self.etat = "pause"
-                self.fenetre.after(1200, self.reprendre_marche)
+                self.current_state = "idle_pause"
+                self.root_window.after(1200, self.resume_walking)
                 
-        elif self.etat == "cours_vers_souris":
-            dx = self.cible_x - self.pos_x
-            dy = self.cible_y - self.pos_y
-            dist = (dx**2 + dy**2) ** 0.5
-            self.direction = 1 if dx >= 0 else -1
+        elif self.current_state == "sprinting_to_caret":
+            delta_x = self.target_x - self.pos_x
+            delta_y = self.target_y - self.pos_y
+            dist = (delta_x**2 + delta_y**2) ** 0.5
+            self.walk_direction = 1 if delta_x >= 0 else -1
             
             if dist > 30:
-                self.pos_x += (dx / dist) * v_sprint
-                self.pos_y += (dy / dist) * v_sprint
+                self.pos_x += (delta_x / dist) * sprint_speed
+                self.pos_y += (delta_y / dist) * sprint_speed
             else:
-                self.pos_x = self.cible_x
-                self.pos_y = self.cible_y
+                self.pos_x = self.target_x
+                self.pos_y = self.target_y
                 
-                # efface le mot tape avec backspace
-                nb = len(self.faute_en_cours["texte_original"])
-                for _ in range(nb):
-                    clavier_simule.press(keyboard.Key.backspace)
-                    clavier_simule.release(keyboard.Key.backspace)
+                # Effacement automatique du texte errone avec Backspace
+                nb_chars = len(self.active_typo_data["original_text"])
+                for _ in range(nb_chars):
+                    simulated_kb.press(keyboard.Key.backspace)
+                    simulated_kb.release(keyboard.Key.backspace)
                     time.sleep(0.01)
                     
-                self.label_texte.configure(text=f"{self.faute_en_cours['texte_original']}", fg="#ffffff")
-                self.bord_sortie_x = virt_x - 200 if self.pos_x < (virt_x + virt_w / 2) else virt_x + virt_w + 100
-                self.etat = "fuite_hors_ecran"
+                # Affiche le texte vole et fuit hors de l'ecran
+                self.text_label.config(text=f"{self.active_typo_data['original_text']}", fg="#ffffff")
+                self.offscreen_exit_x = VIRT_SCREEN_X - 200 if self.pos_x < (VIRT_SCREEN_X + VIRT_SCREEN_W / 2) else VIRT_SCREEN_X + VIRT_SCREEN_W + 100
+                self.current_state = "escaping_offscreen"
                 
-        elif self.etat == "fuite_hors_ecran":
-            dx = self.bord_sortie_x - self.pos_x
-            self.direction = 1 if dx >= 0 else -1
+        elif self.current_state == "escaping_offscreen":
+            delta_x = self.offscreen_exit_x - self.pos_x
+            self.walk_direction = 1 if delta_x >= 0 else -1
             
-            if abs(dx) > 35:
-                self.pos_x += self.direction * v_sprint
+            if abs(delta_x) > 35:
+                self.pos_x += self.walk_direction * sprint_speed
             else:
-                self.pos_x = self.bord_sortie_x
-                self.etat = "cache"
-                self.fenetre.after(400, self.retour_corrige)
+                self.pos_x = self.offscreen_exit_x
+                self.current_state = "hidden"
+                self.root_window.after(400, self.prepare_corrected_return)
                 
-        elif self.etat == "retour_corrige":
-            dx = self.souris_memo_x - self.pos_x
-            dy = self.souris_memo_y - self.pos_y
-            dist = (dx**2 + dy**2) ** 0.5
-            self.direction = 1 if dx >= 0 else -1
+        elif self.current_state == "returning_with_fix":
+            delta_x = self.memo_caret_x - self.pos_x
+            delta_y = self.memo_caret_y - self.pos_y
+            dist = (delta_x**2 + delta_y**2) ** 0.5
+            self.walk_direction = 1 if delta_x >= 0 else -1
             
             if dist > 30:
-                self.pos_x += (dx / dist) * v_sprint
-                self.pos_y += (dy / dist) * v_sprint
+                self.pos_x += (delta_x / dist) * sprint_speed
+                self.pos_y += (delta_y / dist) * sprint_speed
             else:
-                self.pos_x = self.souris_memo_x
-                self.pos_y = self.souris_memo_y
-                self.etat = "depose"
+                self.pos_x = self.memo_caret_x
+                self.pos_y = self.memo_caret_y
+                self.current_state = "depositing_text"
                 
-                # retape le texte propre
-                texte_propre = self.faute_en_cours["texte_corrige"] + " "
-                clavier_simule.type(texte_propre)
+                # Saisie du texte corrige
+                clean_text = self.active_typo_data["corrected_text"] + " "
+                simulated_kb.type(clean_text)
                 
-                self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
-                self.fenetre.after(1200, self.finir_remise)
+                self.text_label.config(text=f"{self.active_typo_data['corrected_text']}", fg="#ffffff")
+                self.root_window.after(1200, self.finish_cycle)
                 
-        if self.etat not in ("fuite_hors_ecran", "cache"):
-            self.pos_y = min(max(virt_y + 30, self.pos_y), self.y_sol)
+        # Securite des coordonnees Y
+        if self.current_state not in ("escaping_offscreen", "hidden"):
+            self.pos_y = min(max(VIRT_SCREEN_Y + 30, self.pos_y), self.ground_y)
             
-        self.fenetre.geometry(f"{self.largeur_fen}x{self.hauteur_fen}+{int(self.pos_x)}+{int(self.pos_y)}")
+        # Application de la geometrie
+        self.root_window.geometry(f"{self.window_w}x{self.window_h}+{int(self.pos_x)}+{int(self.pos_y)}")
         
-        frames = self.frames_droite if self.direction == 1 else self.frames_gauche
+        # Selection de la frame d'animation
+        frames = self.right_frames if self.walk_direction == 1 else self.left_frames
         if frames:
-            self.num_frame = (self.num_frame + 1) % len(frames)
-            self.label_root.configure(image=frames[self.num_frame])
+            self.frame_index = (self.frame_index + 1) % len(frames)
+            self.sprite_label.config(image=frames[self.frame_index])
             
-        delai = 35 if "cours" in self.etat or "fuite" in self.etat or "retour" in self.etat else 110
-        self.fenetre.after(delai, self.actualiser)
+        frame_delay = 35 if self.current_state in ("sprinting_to_caret", "escaping_offscreen", "returning_with_fix") else 110
+        self.root_window.after(frame_delay, self.update_animation)
 
-    def retour_corrige(self):
-        if self.faute_en_cours:
-            self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
-            self.etat = "retour_corrige"
+    def prepare_corrected_return(self):
+        if self.active_typo_data:
+            self.text_label.config(text=f"{self.active_typo_data['corrected_text']}", fg="#ffffff")
+            self.current_state = "returning_with_fix"
 
-    def finir_remise(self):
-        self.label_texte.configure(text="")
-        self.faute_en_cours = None
-        self.etat = "marche"
-        debloquer()
+    def finish_cycle(self):
+        self.text_label.config(text="")
+        self.active_typo_data = None
+        self.current_state = "walking"
+        unlock_input()
 
-    def reprendre_marche(self):
-        if self.etat == "pause":
-            self.direction = random.choice([1, -1])
-            self.etat = "marche"
+    def resume_walking(self):
+        if self.current_state == "idle_pause":
+            self.walk_direction = random.choice([1, -1])
+            self.current_state = "walking"
 
-    def debut_glisser(self, event):
-        self.drag_x = event.x
-        self.drag_y = event.y
-        if self.etat == "marche":
-            self.etat = "pause"
+    def on_drag_start(self, event):
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+        if self.current_state == "walking":
+            self.current_state = "idle_pause"
 
-    def glisser(self, event):
-        self.pos_x += (event.x - self.drag_x)
-        self.pos_y += (event.y - self.drag_y)
-        self.fenetre.geometry(f"{self.largeur_fen}x{self.hauteur_fen}+{int(self.pos_x)}+{int(self.pos_y)}")
+    def on_drag_motion(self, event):
+        self.pos_x += (event.x - self.drag_start_x)
+        self.pos_y += (event.y - self.drag_start_y)
+        self.root_window.geometry(f"{self.window_w}x{self.window_h}+{int(self.pos_x)}+{int(self.pos_y)}")
