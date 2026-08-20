@@ -1,102 +1,84 @@
 import os
 import re
 import difflib
-import random
-import threading
+import unicodedata
 
-ia_prete = False
-modele_camembert = None
+# Chargement du dictionnaire complet de francais
+dossier = os.path.dirname(__file__)
+chemin_dico = os.path.join(dossier, "dico_fr.txt")
 
-# dictionnaire etendu francais & dev avec conjugaisons
-VOCABULAIRE = set([
-    # pronoms et determinants
-    "je", "j", "tu", "t", "il", "elle", "on", "nous", "vous", "ils", "elles",
-    "me", "m", "te", "se", "s", "lui", "leur", "y", "en",
-    "le", "la", "les", "l", "un", "une", "des", "du", "de", "d", "au", "aux",
-    "ce", "cet", "cette", "ces", "mon", "ton", "son", "mes", "tes", "ses",
-    "notre", "votre", "leurs", "nos", "vos", "quel", "quelle", "quels", "quelles",
-    
-    # verbes courants et conjugaisons
-    "suis", "es", "est", "sommes", "etes", "sont", "ete", "etais", "etait", "serai", "sera",
-    "ai", "as", "a", "avons", "avez", "ont", "eu", "avais", "avait", "aurai", "aura",
-    "fais", "fait", "faisons", "faites", "font", "faire", "faisait", "fera",
-    "vais", "vas", "va", "allons", "allez", "vont", "aller", "allait", "ira",
-    "peux", "peut", "pouvons", "pouvez", "peuvent", "pouvoir", "pouvait", "pourra",
-    "veux", "veut", "voulons", "voulez", "veulent", "vouloir", "voulait", "voudra",
-    "dois", "doit", "devons", "devez", "doivent", "devoir", "devait", "devra",
-    "sais", "sait", "savons", "savez", "savent", "savoir", "savait", "saura",
-    "analyse", "analyses", "analysons", "analysez", "analysent", "analyser", "analyse",
-    "corrige", "corriges", "corrigeons", "corrigez", "corrigent", "corriger", "corrige",
-    "comprend", "comprends", "comprenons", "comprenez", "comprennent", "comprendre", "compris",
-    "ecris", "ecrit", "ecrivons", "ecrivez", "ecrivent", "ecrire",
-    "ajoute", "ajoutes", "ajoutons", "ajoutez", "ajoutent", "ajouter",
-    "supprime", "supprimes", "supprimons", "supprimez", "suppriment", "supprimer",
-    "installe", "installes", "installons", "installez", "installent", "installer",
-    "teste", "testes", "testons", "testez", "testent", "tester",
-    "code", "codes", "codons", "codez", "codent", "coder",
-    "marche", "marches", "marchons", "marchez", "marchent", "marcher",
-    "regarde", "regardes", "regardons", "regardez", "regardent", "regarder",
-    "cherche", "cherches", "cherchons", "cherchez", "cherchent", "chercher",
-    
-    # mots courants et connecteurs
-    "salut", "bonjour", "bonsoir", "comment", "ca", "bien", "oui", "non", "merci",
-    "quoi", "qui", "quand", "pourquoi", "parce", "dans", "avec", "sans", "pour", "sur",
-    "sous", "chez", "pote", "frero", "ami", "chose", "temps", "style", "vraiment",
-    "faute", "fautes", "phrase", "phrases", "propre", "tout", "tous", "toute", "toutes",
-    "alors", "donc", "mais", "trop", "tres", "plus", "moins", "pile", "endroit",
-    "contexte", "conjugaison", "complete", "complet", "smart", "intelligent", "vite", "rapide",
-    "nouvel", "nouveau", "nouvelle", "nouveaux", "nouvelles",
-    
-    # dev & tech
-    "boucle", "boucles", "fichier", "fichiers", "fonction", "fonctions", "variable", "variables",
-    "commit", "commits", "push", "pull", "branche", "branches", "serveur", "serveurs",
-    "modele", "modeles", "python", "terminal", "github", "hackathon", "erreur", "erreurs",
-    "orthographe", "programme", "script", "test", "tests", "valider", "projet", "clavier",
-    "ecran", "vitesse", "docker", "linux", "windows", "bug", "bugs", "add", "fix", "git"
-])
+DICO_TOTAL = set()
+if os.path.exists(chemin_dico):
+    with open(chemin_dico, "r", encoding="utf-8") as f:
+        brut = set([w.strip().lower() for w in f if w.strip()])
+        sans_acc = set(["".join(c for c in unicodedata.normalize('NFD', w) if unicodedata.category(c) != 'Mn') for w in brut])
+        DICO_TOTAL = brut | sans_acc
+
+# Vocabulaire familier, internet, dev et gaming protege
+PROTEGES = {
+    "osu", "ezio", "roblox", "discord", "steam", "valorant", "minecraft",
+    "git", "github", "commit", "push", "pull", "add", "fix", "wip", "merge", "fetch",
+    "python", "docker", "linux", "windows", "dev", "bug", "bugs", "root",
+    "complete", "completer", "joue", "jouer", "jeu", "partie", "con", "conne",
+    "chiant", "merde", "jsp", "osef", "tkt", "bg", "frero", "pote", "truc",
+    "style", "grave", "relou", "chelou", "zarbi", "wesh", "jpp", "mdr"
+}
+
+FAUTES_COURANTES = {
+    "sqlut": "salut", "salu": "salut", "slt": "salut", "bjr": "bonjour", "bsr": "bonsoir",
+    "commennnt": "comment", "coment": "comment", "cmnt": "comment", "commnt": "comment",
+    "sqcvat": "ca va", "sqcva": "ca va", "sqva": "ca va", "cava": "ca va",
+    "bouvle": "boucle", "puseh": "push", "ortogorfaf": "orthographe",
+    "ortografe": "orthographe", "ortographe": "orthographe",
+    "prbleme": "probleme", "problm": "probleme", "bcp": "beaucoup",
+    "stp": "s'il te plait", "svp": "s'il vous plait", "frr": "frero"
+}
 
 COMMITS_NULS = ["fix", "wip", "test", "update", "patch", "a", "bug", "modifs", "rien", "yo"]
 
-# chargement en arriere plan du modele neural CamemBERT
-def charger_ia():
-    global ia_prete, modele_camembert
-    try:
-        import torch
-        from transformers import pipeline
-        device = 0 if torch.cuda.is_available() else -1
-        modele_camembert = pipeline(
-            "fill-mask",
-            model="cmarkea/distilcamembert-base",
-            tokenizer="cmarkea/distilcamembert-base",
-            device=device
-        )
-        ia_prete = True
-    except Exception:
-        pass
+def corriger_mot(mot):
+    m = mot.lower().strip(".,!?:;\"'()-_/")
+    if not m or len(m) <= 1:
+        return mot
+    if m in PROTEGES or mot.lower() in PROTEGES:
+        return mot
+    if m in FAUTES_COURANTES:
+        return FAUTES_COURANTES[m]
+        
+    m_clean = re.sub(r'(.)\1{2,}', r'\1', m)
+    if m_clean in FAUTES_COURANTES:
+        return FAUTES_COURANTES[m_clean]
+    if m_clean in DICO_TOTAL or m_clean in PROTEGES:
+        return m_clean
+        
+    m_double = re.sub(r'(.)\1{2,}', r'\1\1', m)
+    if m_double in FAUTES_COURANTES:
+        return FAUTES_COURANTES[m_double]
+    if m_double in DICO_TOTAL or m_double in PROTEGES:
+        return m_double
+        
+    if m in DICO_TOTAL:
+        return mot
+        
+    # substitution azerty q <-> a
+    swap_a = m.replace("q", "a")
+    if swap_a in DICO_TOTAL or swap_a in PROTEGES:
+        return swap_a
+    if swap_a in FAUTES_COURANTES:
+        return FAUTES_COURANTES[swap_a]
+        
+    # seuil strict uniquement pour les mots longs
+    if len(m) >= 6:
+        proches = difflib.get_close_matches(m, list(DICO_TOTAL), n=1, cutoff=0.90)
+        if proches:
+            return proches[0]
+            
+    return mot
 
-thread = threading.Thread(target=charger_ia, daemon=True)
-thread.start()
-
-def phonetique(mot):
-    m = mot.lower()
-    m = re.sub(r'ph', 'f', m)
-    m = re.sub(r'qu', 'k', m)
-    m = re.sub(r'c([eiy])', r's\1', m)
-    m = re.sub(r'c([aou])', r'k\1', m)
-    m = re.sub(r'ss', 's', m)
-    m = re.sub(r'(.)\1+', r'\1', m)
-    return m
-
-def nettoyer(mot):
-    return re.sub(r'(.)\1{2,}', r'\1', mot.lower().strip(".,!?:;\"()-_/"))
-
-def corriger_regles_grammaticales(phrase):
-    p = phrase
-    
-    # homophones et expressions courantes
+def corriger_grammaire_phrase(texte):
+    p = texte
     p = re.sub(r'\bcette\s+est\b', "c'est", p, flags=re.IGNORECASE)
     p = re.sub(r'\bc\s+est\b', "c'est", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bse\s+est\b', "c'est", p, flags=re.IGNORECASE)
     p = re.sub(r'\b(sa|sq)\s+va\b', "ça va", p, flags=re.IGNORECASE)
     p = re.sub(r'\b(sa|sq)\s+marche\b', "ça marche", p, flags=re.IGNORECASE)
     
@@ -109,77 +91,25 @@ def corriger_regles_grammaticales(phrase):
     p = re.sub(r'\b(ils|elles)\s+sait\b', r'\1 savent', p, flags=re.IGNORECASE)
     p = re.sub(r'\b(il|elle|on)\s+veulent\b', r'\1 veut', p, flags=re.IGNORECASE)
     p = re.sub(r'\b(ils|elles)\s+veut\b', r'\1 veulent', p, flags=re.IGNORECASE)
-    p = re.sub(r'\b(il|elle|on)\s+font\b', r'\1 fait', p, flags=re.IGNORECASE)
-    p = re.sub(r'\b(ils|elles)\s+fait\b', r'\1 font', p, flags=re.IGNORECASE)
     
-    # infinitif apres prepositions (pour / de / a / doit / peut)
+    # infinitifs apres prepositions
     p = re.sub(r'\bpour\s+corrige\b', "pour corriger", p, flags=re.IGNORECASE)
     p = re.sub(r'\bpour\s+comprend\b', "pour comprendre", p, flags=re.IGNORECASE)
     p = re.sub(r'\bpour\s+analyse\b', "pour analyser", p, flags=re.IGNORECASE)
     p = re.sub(r'\bdoit\s+analyse\b', "doit analyser", p, flags=re.IGNORECASE)
     p = re.sub(r'\bdoit\s+corrige\b', "doit corriger", p, flags=re.IGNORECASE)
     p = re.sub(r'\bdoit\s+comprend\b', "doit comprendre", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpeut\s+analyse\b', "peut analyser", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpeut\s+corrige\b', "peut corriger", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpeut\s+comprend\b', "peut comprendre", p, flags=re.IGNORECASE)
     
     # accords genre / nombre
     p = re.sub(r'\bla\s+phrase\s+complet\b', "la phrase complete", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bun\s+nouvelle\b', "un nouveau", p, flags=re.IGNORECASE)
     p = re.sub(r'\bune\s+nouvel\b', "une nouvelle", p, flags=re.IGNORECASE)
     p = re.sub(r'\bnouvel\s+boucle\b', "nouvelle boucle", p, flags=re.IGNORECASE)
     
-    # franglais dev
+    # dev
     p = re.sub(r'\bj\s+ai\s+add\b', "j'ai ajoute", p, flags=re.IGNORECASE)
     p = re.sub(r'\bj\s+ai\s+fix\b', "j'ai corrige", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bj\s+ai\s+push\b', "j'ai push", p, flags=re.IGNORECASE)
     
     return p
-
-def corriger_mot(mot, phrase_complete=""):
-    propre = nettoyer(mot)
-    if not propre or len(propre) <= 1 or "'" in propre:
-        return mot
-        
-    if propre in VOCABULAIRE:
-        return propre
-        
-    # substitution azerty q <-> a
-    swap_a = propre.replace("q", "a")
-    if swap_a in VOCABULAIRE:
-        return swap_a
-    if "sq" in propre and propre in ("sqva", "sqcva", "sqcvat", "sqcv"):
-        return "ca va"
-        
-    # IA CamemBERT contextuelle si active
-    if ia_prete and modele_camembert and phrase_complete:
-        try:
-            masque = phrase_complete.replace(mot, "<mask>", 1)
-            preds = modele_camembert(masque)
-            if isinstance(preds, list) and len(preds) > 0:
-                candidat_ia = preds[0]["token_str"].strip().lower()
-                if len(candidat_ia) >= 2 and difflib.SequenceMatcher(None, propre, candidat_ia).ratio() > 0.45:
-                    return candidat_ia
-        except Exception:
-            pass
-            
-    # difflib standard
-    proches = difflib.get_close_matches(propre, list(VOCABULAIRE), n=1, cutoff=0.55)
-    if proches:
-        return proches[0]
-        
-    # difflib avec swap azerty
-    proches_swap = difflib.get_close_matches(swap_a, list(VOCABULAIRE), n=1, cutoff=0.55)
-    if proches_swap:
-        return proches_swap[0]
-        
-    # match phonetique
-    p_propre = phonetique(propre)
-    candidats = sorted(VOCABULAIRE, key=lambda v: difflib.SequenceMatcher(None, p_propre, phonetique(v)).ratio(), reverse=True)
-    if candidats and difflib.SequenceMatcher(None, p_propre, phonetique(candidats[0])).ratio() > 0.65:
-        return candidats[0]
-        
-    return mot
 
 def analyser_texte(texte):
     texte = texte.strip()
@@ -193,19 +123,16 @@ def analyser_texte(texte):
             "texte_corrige": f"feat: mise a jour propre ({texte})"
         }
         
-    # 1. correction mot par mot
     mots_corriges = []
     a_change = False
     for m in mots:
-        corrige = corriger_mot(m, phrase_complete=texte)
+        corrige = corriger_mot(m)
         if corrige.lower() != m.lower():
             a_change = True
         mots_corriges.append(corrige)
         
     phrase_intermediaire = " ".join(mots_corriges)
-    
-    # 2. correction grammaticale et de conjugaison sur la phrase
-    phrase_finale = corriger_regles_grammaticales(phrase_intermediaire)
+    phrase_finale = corriger_grammaire_phrase(phrase_intermediaire)
     
     if a_change or phrase_finale.lower() != texte.lower():
         return {
