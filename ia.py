@@ -1,7 +1,9 @@
 from spellchecker import SpellChecker
 
+# dico fr pour verifier les fautes
 spell = SpellChecker(language="fr")
 
+# les mots a pas toucher (pseudos, jeux, etc)
 PROTEGES = {
     "osu", "ezio", "roblox", "discord", "steam", "valorant", "minecraft",
     "git", "github", "commit", "push", "pull", "add", "fix", "wip", "merge", "fetch",
@@ -18,6 +20,7 @@ def analyser_texte(texte):
     
     for m in mots:
         clean = m.lower().strip(".,!?:;\"'()-_/")
+        # si deja bon ou dans les proteges on touche pas
         if "'" in m or clean in PROTEGES or clean in spell or len(clean) <= 2:
             mots_c.append(m)
         else:
@@ -29,6 +32,7 @@ def analyser_texte(texte):
                 
     resultat = " ".join(mots_c)
     
+    # si y a eu un changement on renvoie le diff
     if resultat.lower() != texte.lower():
         return {
             "texte_original": texte,

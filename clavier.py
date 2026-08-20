@@ -1,7 +1,9 @@
 import time
+import os
 from pynput import keyboard
 from ia import analyser_texte
 
+# simule les touches pour effacer et reecrire
 clavier_simule = keyboard.Controller()
 buffer_phrase = ""
 dernier_temps = 0
@@ -25,6 +27,7 @@ def initialiser_clavier(callback):
 
 def touche_pressee(key):
     global buffer_phrase, dernier_temps, bloquer_saisie
+    # evite que l utilisateur tape pendant que root reecrit
     if bloquer_saisie:
         return
         
@@ -58,5 +61,6 @@ def verifier_et_nettoyer(forcer_reset=False):
 
 def verifier_pause():
     global buffer_phrase, dernier_temps, bloquer_saisie
+    # declenche si la personne s arrete d ecrire
     if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 0.9:
         verifier_et_nettoyer(forcer_reset=False)

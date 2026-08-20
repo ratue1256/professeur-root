@@ -1,5 +1,5 @@
-import os
 import time
+import os
 import random
 import ctypes
 from ctypes import wintypes
@@ -23,12 +23,14 @@ class GUITHREADINFO(ctypes.Structure):
         ("rcCaret", wintypes.RECT)
     ]
 
+# gestion du multi ecran sous windows
 virt_x = ctypes.windll.user32.GetSystemMetrics(76)
 virt_y = ctypes.windll.user32.GetSystemMetrics(77)
 virt_w = ctypes.windll.user32.GetSystemMetrics(78)
 virt_h = ctypes.windll.user32.GetSystemMetrics(79)
 
 def get_exact_typing_pos():
+    # essaye de chopper le curseur texte ou la fenetre active
     try:
         gui = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
         if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)):
@@ -51,6 +53,7 @@ def get_exact_typing_pos():
     except Exception:
         pass
         
+    # fallback sur la souris au cas ou
     pt = wintypes.POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
     return pt.x, pt.y
@@ -81,6 +84,7 @@ class RootPet:
         self.frames_gauche = []
         self.charger_sprites()
         
+        # label texte blanc au dessus de root
         self.label_texte = tk.Label(
             self.fenetre,
             text="",
@@ -93,6 +97,7 @@ class RootPet:
         self.label_root = tk.Label(self.fenetre, bg="#000001", bd=0)
         self.label_root.pack(side="top")
         
+        # drag and drop a la souris
         self.drag_x = 0
         self.drag_y = 0
         self.label_root.bind("<Button-1>", self.debut_glisser)
@@ -142,6 +147,7 @@ class RootPet:
             elif self.pos_x <= virt_x + 20:
                 self.direction = 1
                 
+            # redescend vers le sol si besoin
             if self.pos_y < self.y_sol:
                 self.pos_y += min(4, self.y_sol - self.pos_y)
             elif self.pos_y > self.y_sol:
@@ -164,6 +170,7 @@ class RootPet:
                 self.pos_x = self.cible_x
                 self.pos_y = self.cible_y
                 
+                # efface le mot tape avec backspace
                 nb = len(self.faute_en_cours["texte_original"])
                 for _ in range(nb):
                     clavier_simule.press(keyboard.Key.backspace)
@@ -199,6 +206,7 @@ class RootPet:
                 self.pos_y = self.souris_memo_y
                 self.etat = "depose"
                 
+                # retape le texte propre
                 texte_propre = self.faute_en_cours["texte_corrige"] + " "
                 clavier_simule.type(texte_propre)
                 

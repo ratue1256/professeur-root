@@ -3,6 +3,7 @@ from pet import RootPet
 from clavier import initialiser_clavier, verifier_pause
 
 def main():
+    # fenetre transparente au dessus de tout
     fenetre = tk.Tk()
     fenetre.overrideredirect(True)
     fenetre.wm_attributes("-topmost", True)
