@@ -13,8 +13,6 @@ def main():
     root_pet = RootPet(fenetre)
     initialiser_clavier(root_pet.declencher_faute)
     
-    print("[+] Professeur Root est en route sur ta faute ou la mienne")
-    
     def loop_check():
         verifier_pause()
         fenetre.after(300, loop_check)

@@ -206,7 +206,7 @@ class RootPet:
         self.label_texte.configure(text="")
         self.faute_en_cours = None
         self.etat = "marche"
-        debloquer() # debloque la frappe clavier
+        debloquer()
 
     def reprendre_marche(self):
         if self.etat == "pause":
