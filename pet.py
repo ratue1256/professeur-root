@@ -121,7 +121,7 @@ class RootPet:
 
     def actualiser(self):
         v_marche = 3
-        v_sprint = 20
+        v_sprint = 32
         
         if self.etat == "marche":
             self.pos_x += self.direction * v_marche
@@ -145,7 +145,7 @@ class RootPet:
             dist = (dx**2 + dy**2) ** 0.5
             self.direction = 1 if dx >= 0 else -1
             
-            if dist > 22:
+            if dist > 30:
                 self.pos_x += (dx / dist) * v_sprint
                 self.pos_y += (dy / dist) * v_sprint
             else:
@@ -166,12 +166,12 @@ class RootPet:
             dx = self.bord_sortie_x - self.pos_x
             self.direction = 1 if dx >= 0 else -1
             
-            if abs(dx) > 25:
+            if abs(dx) > 35:
                 self.pos_x += self.direction * v_sprint
             else:
                 self.pos_x = self.bord_sortie_x
                 self.etat = "cache"
-                self.fenetre.after(600, self.retour_corrige)
+                self.fenetre.after(400, self.retour_corrige)
                 
         elif self.etat == "retour_corrige":
             dx = self.souris_memo_x - self.pos_x
@@ -179,7 +179,7 @@ class RootPet:
             dist = (dx**2 + dy**2) ** 0.5
             self.direction = 1 if dx >= 0 else -1
             
-            if dist > 22:
+            if dist > 30:
                 self.pos_x += (dx / dist) * v_sprint
                 self.pos_y += (dy / dist) * v_sprint
             else:
@@ -191,7 +191,7 @@ class RootPet:
                 clavier_simule.type(texte_propre)
                 
                 self.label_texte.configure(text=f"{self.faute_en_cours['texte_corrige']}", fg="#ffffff")
-                self.fenetre.after(1600, self.finir_remise)
+                self.fenetre.after(1200, self.finir_remise)
                 
         if self.etat not in ("fuite_hors_ecran", "cache"):
             self.pos_y = min(max(virt_y + 30, self.pos_y), self.y_sol)
@@ -203,7 +203,7 @@ class RootPet:
             self.num_frame = (self.num_frame + 1) % len(frames)
             self.label_root.configure(image=frames[self.num_frame])
             
-        delai = 65 if "cours" in self.etat or "fuite" in self.etat or "retour" in self.etat else 110
+        delai = 35 if "cours" in self.etat or "fuite" in self.etat or "retour" in self.etat else 110
         self.fenetre.after(delai, self.actualiser)
 
     def retour_corrige(self):

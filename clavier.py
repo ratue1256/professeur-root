@@ -50,6 +50,7 @@ def verifier_et_nettoyer():
     if phrase and len(phrase) >= 3:
         res = analyser_texte(phrase)
         if res and callback_faute:
+            bloquer()
             buffer_phrase = ""
             callback_faute(res)
         elif not res:
@@ -58,5 +59,5 @@ def verifier_et_nettoyer():
 
 def verifier_pause():
     global buffer_phrase, dernier_temps, bloquer_saisie
-    if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 1.2:
+    if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 0.45:
         verifier_et_nettoyer()
