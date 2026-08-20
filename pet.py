@@ -31,11 +31,23 @@ virt_h = ctypes.windll.user32.GetSystemMetrics(79)
 def get_exact_typing_pos():
     try:
         gui = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
-        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)) and gui.hwndCaret:
-            pt = wintypes.POINT(gui.rcCaret.left, gui.rcCaret.top)
-            ctypes.windll.user32.ClientToScreen(gui.hwndCaret, ctypes.byref(pt))
-            if pt.x > -2000 and pt.y > virt_y:
-                return pt.x, pt.y
+        if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(gui)):
+            if gui.hwndCaret:
+                pt = wintypes.POINT(gui.rcCaret.left, gui.rcCaret.top)
+                ctypes.windll.user32.ClientToScreen(gui.hwndCaret, ctypes.byref(pt))
+                if pt.x > -2000 and pt.y > virt_y:
+                    return pt.x, pt.y
+            if gui.hwndFocus:
+                rect = wintypes.RECT()
+                ctypes.windll.user32.GetWindowRect(gui.hwndFocus, ctypes.byref(rect))
+                return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
+                
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if hwnd:
+            rect = wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            if rect.right > rect.left and rect.bottom > rect.top:
+                return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
     except Exception:
         pass
         
