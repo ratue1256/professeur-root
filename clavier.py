@@ -2,16 +2,16 @@ import time
 from pynput import keyboard
 from ia import check_sentence_errors
 
-# controleur clavier pour simuler les backspaces + reecriture
+# simule le clavier pour virer la faute et retaper
 kb_sim = keyboard.Controller()
 
-# buffer global de la phrase en cours
+# stocke ce que le mec ecrit
 buf = ""
 last_t = 0.0
 on_typo = None
 locked = False
 
-# touches speciales a ignorer pour pas polluer le buffer
+# touches a ignorer sinon le buffer se remplit de merde
 IGNORE_KEYS = {
     keyboard.Key.shift, keyboard.Key.shift_r,
     keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
@@ -31,7 +31,7 @@ def unlock_input():
 def handle_press(k):
     global buf, last_t, locked
     
-    # si root est en train de sprint / effacer on bloque tout
+    # si root est en train de courir ou effacer on bloque la frappe
     if locked:
         return
         
@@ -42,13 +42,13 @@ def handle_press(k):
         if hasattr(k, "char") and k.char:
             buf += k.char
             last_t = time.time()
-            # ponctuation de fin de phrase -> analyse directe
+            # fin de phrase direct on check
             if k.char in (".", "!", "?", "\n"):
                 eval_buffer(force=True)
         elif k == keyboard.Key.space:
             buf += " "
             last_t = time.time()
-            # si la phrase devient trop longue on garde juste les derniers mots
+            # si la phrase devient bcp trop longue on coupe un peu
             if len(buf) > 150:
                 buf = " ".join(buf.split()[-6:])
         elif k == keyboard.Key.enter:
@@ -57,13 +57,14 @@ def handle_press(k):
             buf = buf[:-1] if buf else ""
             last_t = time.time()
     except Exception:
-        # pynput peut crash sur certaines touches media / gaming
+        # pynput throw des erreurs random sur certaines touches
         pass
 
 def eval_buffer(force=False):
     global buf
     txt = buf.strip()
     
+    # check si y a une faute
     if len(txt) >= 3:
         res = check_sentence_errors(txt)
         if res and on_typo:
@@ -77,7 +78,7 @@ def eval_buffer(force=False):
 
 def check_typing_pause():
     global buf, last_t, locked
-    # 0.8s d'inactivite pour declencher
+    # si le mec s arrete 0.8s on check sa phrase
     if not locked and len(buf.strip()) >= 3:
         if (time.time() - last_t) > 0.8:
             eval_buffer(force=False)
@@ -85,6 +86,7 @@ def check_typing_pause():
 def start_keyboard_listener(callback):
     global on_typo
     on_typo = callback
+    # listener en arriere plan
     listener = keyboard.Listener(on_press=handle_press)
     listener.daemon = True
     listener.start()

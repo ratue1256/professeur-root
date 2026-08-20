@@ -10,7 +10,7 @@ from clavier import lock_input, unlock_input
 
 sim_kb = keyboard.Controller()
 
-# struct win32 pour recuperer la position du caret texte
+# struct win32 un peu chiante pour chopper la pos du caret texte
 class GUITHREADINFO(ctypes.Structure):
     _fields_ = [
         ("cbSize", wintypes.DWORD),
@@ -24,14 +24,14 @@ class GUITHREADINFO(ctypes.Structure):
         ("rcCaret", wintypes.RECT)
     ]
 
-# resolution du bureau virtuel (prend en compte le multi-ecran)
+# metrics multi ecran sous windows (76=x, 77=y, 78=w, 79=h)
 VIRT_X = ctypes.windll.user32.GetSystemMetrics(76)
 VIRT_Y = ctypes.windll.user32.GetSystemMetrics(77)
 VIRT_W = ctypes.windll.user32.GetSystemMetrics(78)
 VIRT_H = ctypes.windll.user32.GetSystemMetrics(79)
 
 def get_text_caret_pos():
-    # 1. tente de choper la position exacte du curseur texte
+    # 1. essaye de chopper le curseur texte
     try:
         info = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
         if ctypes.windll.user32.GetGUIThreadInfo(0, ctypes.byref(info)):
@@ -41,13 +41,13 @@ def get_text_caret_pos():
                 if pt.x > -2000 and pt.y > VIRT_Y:
                     return pt.x, pt.y
                     
-            # 2. fenetre avec le focus (utile pour electron / discord / chrome)
+            # 2. fenetre avec le focus (discord chrome etc)
             if info.hwndFocus:
                 rect = wintypes.RECT()
                 ctypes.windll.user32.GetWindowRect(info.hwndFocus, ctypes.byref(rect))
                 return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
                 
-        # 3. fenetre au premier plan
+        # 3. fenetre active
         active = ctypes.windll.user32.GetForegroundWindow()
         if active:
             rect = wintypes.RECT()
@@ -57,7 +57,7 @@ def get_text_caret_pos():
     except Exception:
         pass
 
-    # 4. fallback souris
+    # 4. si tout foire on prend la souris
     pt = wintypes.POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
     return pt.x, pt.y
@@ -71,7 +71,7 @@ class RootPet:
         self.win_h = 140
         self.floor_y = VIRT_Y + VIRT_H - self.win_h - 60
         
-        # position de depart au sol
+        # spawn root au sol direct
         self.x = VIRT_X + random.randint(200, max(300, VIRT_W - 400))
         self.y = self.floor_y
         self.dir = 1
@@ -90,7 +90,7 @@ class RootPet:
         self.frames_l = []
         self.load_sprites()
         
-        # texte blanc affiche au dessus du sprite
+        # label texte pour le message au dessus de root
         self.txt_label = tk.Label(
             self.win,
             text="",
@@ -103,7 +103,7 @@ class RootPet:
         self.sprite_label = tk.Label(self.win, bg="#000001", bd=0)
         self.sprite_label.pack(side="top")
         
-        # drag & drop
+        # drag and drop a la souris
         self.drag_x = 0
         self.drag_y = 0
         self.sprite_label.bind("<Button-1>", self.start_drag)
@@ -115,11 +115,11 @@ class RootPet:
             img_path = os.path.join(asset_folder, f"Root{i}.png")
             if os.path.exists(img_path):
                 img = Image.open(img_path).convert("RGBA")
-                # cadrage pour centrer root
+                # crop pour centrer root
                 img = img.crop((200, 0, 1800, 2000))
                 img = img.resize((self.sprite_size, self.sprite_size), Image.Resampling.LANCZOS)
                 
-                # fond transparent pour le rendu tkinter (#000001)
+                # fond transparent pour tkinter (#000001)
                 bg = Image.new("RGBA", img.size, (0, 0, 1, 255))
                 img_r = Image.alpha_composite(bg, img)
                 img_l = Image.alpha_composite(bg, img.transpose(Image.FLIP_LEFT_RIGHT))
@@ -135,7 +135,7 @@ class RootPet:
         self.typo_data = typo
         cx, cy = get_text_caret_pos()
         
-        # cible juste au dessus de la zone de saisie
+        # se place pile au dessus du texte
         self.caret_x = min(max(VIRT_X + 20, cx - (self.win_w // 2)), VIRT_X + VIRT_W - self.win_w - 20)
         self.caret_y = min(max(VIRT_Y + 40, cy - self.sprite_size - 20), self.floor_y)
         
@@ -155,7 +155,7 @@ class RootPet:
             elif self.x <= VIRT_X + 20:
                 self.dir = 1
                 
-            # redescend vers le sol
+            # redescend au sol si il est en l air
             if self.y < self.floor_y:
                 self.y += min(4, self.floor_y - self.y)
             elif self.y > self.floor_y:
@@ -178,7 +178,7 @@ class RootPet:
                 self.x = self.target_x
                 self.y = self.target_y
                 
-                # supprime le texte tape avec backspace
+                # efface les lettres tapees avec backspace
                 count = len(self.typo_data["original_text"])
                 for _ in range(count):
                     sim_kb.press(keyboard.Key.backspace)
@@ -214,7 +214,7 @@ class RootPet:
                 self.y = self.caret_y
                 self.state = "drop"
                 
-                # retape le mot propre
+                # retape le texte propre
                 fixed_text = self.typo_data["corrected_text"] + " "
                 sim_kb.type(fixed_text)
                 

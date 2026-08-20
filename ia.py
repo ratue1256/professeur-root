@@ -1,9 +1,9 @@
 from spellchecker import SpellChecker
 
-# spellchecker francais officiel
+# dico fr pour chopper les fautes
 spell = SpellChecker(language="fr")
 
-# liste des mots gaming / dev a ne jamais corriger
+# les mots a surtout pas toucher sinon ca va casser les pseudos et les jeux
 IGNORED_WORDS = {
     "osu", "ezio", "roblox", "discord", "steam", "valorant", "minecraft",
     "git", "github", "commit", "push", "pull", "add", "fix", "wip", "merge",
@@ -11,7 +11,7 @@ IGNORED_WORDS = {
 }
 
 def clean_word(w):
-    # vire la ponctuation autour du mot
+    # vire la ponctuation qui traine autour
     return w.lower().strip(".,!?:;\"'()-_/[]{}~`")
 
 def check_sentence_errors(raw_sentence):
@@ -26,15 +26,15 @@ def check_sentence_errors(raw_sentence):
     for w in words:
         clean = clean_word(w)
         
-        # exclusions : mot avec apostrophe, mot dans la whitelist, mot court ou mot valide dans le dico
+        # si y a une apostrophe, si c est dans la liste ou si le mot est bon on touche pas
         if "'" in w or len(clean) <= 2 or clean in IGNORED_WORDS or clean in spell:
             corrected_list.append(w)
             continue
             
-        # tentative de correction
+        # check avec le dico
         fix = spell.correction(clean)
         if fix and fix.lower() != clean and len(clean) >= 3:
-            # conserve la majuscule si le mot d'origine en avait une
+            # remet la majuscule si y en avait une
             if w[0].isupper():
                 fix = fix.capitalize()
             corrected_list.append(fix)
@@ -44,7 +44,7 @@ def check_sentence_errors(raw_sentence):
 
     rebuilt = " ".join(corrected_list)
 
-    # retourne le diff seulement si le texte a change
+    # renvoie la faute seulement si y a eu un vrai changement
     if has_changes and rebuilt.lower() != text.lower():
         return {
             "original_text": text,
