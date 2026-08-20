@@ -2,12 +2,23 @@ import time
 from pynput import keyboard
 from ia import check_sentence_errors
 
-# listener clavier pour choper les phrases en direct
-kb_ctrl = keyboard.Controller()
+# controleur clavier pour simuler les backspaces + reecriture
+kb_sim = keyboard.Controller()
+
+# buffer global de la phrase en cours
 buf = ""
 last_t = 0.0
 on_typo = None
 locked = False
+
+# touches speciales a ignorer pour pas polluer le buffer
+IGNORE_KEYS = {
+    keyboard.Key.shift, keyboard.Key.shift_r,
+    keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r,
+    keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r,
+    keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r,
+    keyboard.Key.caps_lock, keyboard.Key.tab
+}
 
 def lock_input():
     global locked
@@ -20,35 +31,39 @@ def unlock_input():
 def handle_press(k):
     global buf, last_t, locked
     
-    # si root est en train de corriger on touche a rien
+    # si root est en train de sprint / effacer on bloque tout
     if locked:
         return
         
+    if k in IGNORE_KEYS:
+        return
+
     try:
-        # caractere normal
-        if hasattr(k, "char") and k.char is not None:
+        if hasattr(k, "char") and k.char:
             buf += k.char
             last_t = time.time()
-            # fin de phrase direct
+            # ponctuation de fin de phrase -> analyse directe
             if k.char in (".", "!", "?", "\n"):
                 eval_buffer(force=True)
         elif k == keyboard.Key.space:
             buf += " "
             last_t = time.time()
+            # si la phrase devient trop longue on garde juste les derniers mots
+            if len(buf) > 150:
+                buf = " ".join(buf.split()[-6:])
         elif k == keyboard.Key.enter:
             eval_buffer(force=True)
         elif k == keyboard.Key.backspace:
-            buf = buf[:-1] if len(buf) > 0 else ""
+            buf = buf[:-1] if buf else ""
             last_t = time.time()
     except Exception:
-        # pynput peut throw des trucs bizarres sur certaines touches speciales
+        # pynput peut crash sur certaines touches media / gaming
         pass
 
 def eval_buffer(force=False):
     global buf
     txt = buf.strip()
     
-    # evite d'analyser pour 1 ou 2 lettres
     if len(txt) >= 3:
         res = check_sentence_errors(txt)
         if res and on_typo:
@@ -62,14 +77,14 @@ def eval_buffer(force=False):
 
 def check_typing_pause():
     global buf, last_t, locked
-    # debounce d'environ 0.85s sans frappe pour laisser l'user reflechir
+    # 0.8s d'inactivite pour declencher
     if not locked and len(buf.strip()) >= 3:
-        if (time.time() - last_t) > 0.85:
+        if (time.time() - last_t) > 0.8:
             eval_buffer(force=False)
 
 def start_keyboard_listener(callback):
     global on_typo
     on_typo = callback
-    l = keyboard.Listener(on_press=handle_press)
-    l.daemon = True
-    l.start()
+    listener = keyboard.Listener(on_press=handle_press)
+    listener.daemon = True
+    listener.start()
