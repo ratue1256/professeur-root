@@ -152,7 +152,7 @@ class RootPet:
                 self.pos_x = self.cible_x
                 self.pos_y = self.cible_y
                 
-                nb = len(self.faute_en_cours["texte_original"]) + 1
+                nb = len(self.faute_en_cours["texte_original"])
                 for _ in range(nb):
                     clavier_simule.press(keyboard.Key.backspace)
                     clavier_simule.release(keyboard.Key.backspace)

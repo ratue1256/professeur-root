@@ -32,19 +32,19 @@ def touche_pressee(key):
         if hasattr(key, "char") and key.char:
             buffer_phrase += key.char
             dernier_temps = time.time()
-            if len(buffer_phrase) > 120:
-                buffer_phrase = " ".join(buffer_phrase.split()[-4:])
+            if key.char in (".", "!", "?"):
+                verifier_et_nettoyer(forcer_reset=True)
         elif key == keyboard.Key.space:
             buffer_phrase += " "
             dernier_temps = time.time()
         elif key == keyboard.Key.enter:
-            verifier_et_nettoyer()
+            verifier_et_nettoyer(forcer_reset=True)
         elif key == keyboard.Key.backspace:
             buffer_phrase = buffer_phrase[:-1]
     except Exception:
         pass
 
-def verifier_et_nettoyer():
+def verifier_et_nettoyer(forcer_reset=False):
     global buffer_phrase
     phrase = buffer_phrase.strip()
     if phrase and len(phrase) >= 3:
@@ -53,11 +53,10 @@ def verifier_et_nettoyer():
             bloquer()
             buffer_phrase = ""
             callback_faute(res)
-        elif not res:
-            mots = phrase.split()
-            buffer_phrase = mots[-1] if mots else ""
+        elif forcer_reset:
+            buffer_phrase = ""
 
 def verifier_pause():
     global buffer_phrase, dernier_temps, bloquer_saisie
-    if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 0.45:
-        verifier_et_nettoyer()
+    if not bloquer_saisie and buffer_phrase.strip() and time.time() - dernier_temps > 0.9:
+        verifier_et_nettoyer(forcer_reset=False)
