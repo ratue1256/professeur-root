@@ -3,18 +3,24 @@ import re
 import difflib
 import unicodedata
 
-# Chargement du dictionnaire complet de francais
 dossier = os.path.dirname(__file__)
 chemin_dico = os.path.join(dossier, "dico_fr.txt")
 
 DICO_TOTAL = set()
+DICO_PAR_LEN = {}
+
 if os.path.exists(chemin_dico):
     with open(chemin_dico, "r", encoding="utf-8") as f:
         brut = set([w.strip().lower() for w in f if w.strip()])
         sans_acc = set(["".join(c for c in unicodedata.normalize('NFD', w) if unicodedata.category(c) != 'Mn') for w in brut])
         DICO_TOTAL = brut | sans_acc
+        
+        for w in DICO_TOTAL:
+            l = len(w)
+            if l not in DICO_PAR_LEN:
+                DICO_PAR_LEN[l] = []
+            DICO_PAR_LEN[l].append(w)
 
-# Vocabulaire familier, internet, dev et gaming protege
 PROTEGES = {
     "osu", "ezio", "roblox", "discord", "steam", "valorant", "minecraft",
     "git", "github", "commit", "push", "pull", "add", "fix", "wip", "merge", "fetch",
@@ -60,16 +66,21 @@ def corriger_mot(mot):
     if m in DICO_TOTAL:
         return mot
         
-    # substitution azerty q <-> a
     swap_a = m.replace("q", "a")
     if swap_a in DICO_TOTAL or swap_a in PROTEGES:
         return swap_a
     if swap_a in FAUTES_COURANTES:
         return FAUTES_COURANTES[swap_a]
         
-    # seuil strict uniquement pour les mots longs
-    if len(m) >= 6:
-        proches = difflib.get_close_matches(m, list(DICO_TOTAL), n=1, cutoff=0.90)
+    # recherche automatique dans le dictionnaire francais
+    l = len(m)
+    candidats = []
+    for dl in (-1, 0, 1):
+        if l + dl in DICO_PAR_LEN:
+            candidats.extend(DICO_PAR_LEN[l + dl])
+            
+    if candidats and len(m) >= 3:
+        proches = difflib.get_close_matches(m, candidats, n=1, cutoff=0.75)
         if proches:
             return proches[0]
             
