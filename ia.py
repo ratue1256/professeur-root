@@ -1,79 +1,71 @@
-import re
-from spellchecker import SpellChecker
+import os
+import threading
+import unicodedata
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-spell = SpellChecker(language="fr")
+ia_prete = False
+tokenizer = None
+model = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-PROTEGES = {
-    "osu", "ezio", "roblox", "discord", "steam", "valorant", "minecraft",
-    "git", "github", "commit", "push", "pull", "add", "fix", "wip", "merge", "fetch",
-    "python", "docker", "linux", "windows", "dev", "bug", "bugs", "root"
-}
+def sans_accents(t):
+    return "".join(c for c in unicodedata.normalize('NFD', t) if unicodedata.category(c) != 'Mn')
 
-def corriger_mot(mot):
-    m = mot.lower().strip(".,!?:;\"'()-_/")
-    if not m or len(m) <= 1 or m in PROTEGES:
-        return mot
-    
-    if m in spell:
-        return mot
-        
-    m_clean = re.sub(r'(.)\1{2,}', r'\1', m)
-    if m_clean in spell:
-        return m_clean
-        
-    corrige = spell.correction(m)
-    if corrige and corrige.lower() != m:
-        return corrige
-        
-    swap_a = m.replace("q", "a")
-    if swap_a in spell:
-        return swap_a
-        
-    corrige_swap = spell.correction(swap_a)
-    if corrige_swap and corrige_swap.lower() != swap_a:
-        return corrige_swap
-        
-    return mot
+def charger_ia():
+    global ia_prete, tokenizer, model
+    try:
+        model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            dtype=torch.float16 if device == "cuda" else torch.float32
+        ).to(device)
+        ia_prete = True
+    except Exception:
+        pass
 
-def corriger_grammaire(texte):
-    p = texte
-    p = re.sub(r'\bcette\s+est\b', "c'est", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bc\s+est\b', "c'est", p, flags=re.IGNORECASE)
-    p = re.sub(r'\b(sa|sq)\s+va\b', "ça va", p, flags=re.IGNORECASE)
-    p = re.sub(r'\b(il|elle|on)\s+doivent\b', r'\1 doit', p, flags=re.IGNORECASE)
-    p = re.sub(r'\b(ils|elles)\s+doit\b', r'\1 doivent', p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpour\s+corrige\b', "pour corriger", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpour\s+comprend\b', "pour comprendre", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bpour\s+analyse\b', "pour analyser", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bdoit\s+analyse\b', "doit analyser", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bdoit\s+corrige\b', "doit corriger", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bla\s+phrase\s+complet\b', "la phrase complete", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bune\s+nouvel\b', "une nouvelle", p, flags=re.IGNORECASE)
-    p = re.sub(r'\bj\s+ai\s+add\b', "j'ai ajoute", p, flags=re.IGNORECASE)
-    return p
+thread = threading.Thread(target=charger_ia, daemon=True)
+thread.start()
 
 def analyser_texte(texte):
     texte = texte.strip()
-    if not texte or len(texte) < 3:
+    if not texte or len(texte) < 3 or not ia_prete:
         return None
+
+    try:
+        prompt = (
+            "<|im_start|>system\n"
+            "Tu es un correcteur orthographique francais. Tu corriges uniquement les vraies fautes de frappe et de grammaire. "
+            "Si la phrase est deja correcte, recopie la a l'identique sans rien changer. "
+            "Ne change jamais les pseudos, l'ordre des mots, ni les jeux (osu, ezio, roblox). "
+            "Renvoie STRICTEMENT la phrase corrigee sur une ligne.<|im_end|>\n"
+            "<|im_start|>user\nbonjout je suis sur mon oridnateur<|im_end|>\n"
+            "<|im_start|>assistant\nbonjour je suis sur mon ordinateur<|im_end|>\n"
+            "<|im_start|>user\nil doivent analyse la phrase complet<|im_end|>\n"
+            "<|im_start|>assistant\nil doit analyser la phrase complete<|im_end|>\n"
+            "<|im_start|>user\nje joue a osu avec ezio<|im_end|>\n"
+            "<|im_start|>assistant\nje joue a osu avec ezio<|im_end|>\n"
+            f"<|im_start|>user\n{texte}<|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
         
-    mots = texte.split()
-    mots_corriges = []
-    a_change = False
-    
-    for m in mots:
-        corrige = corriger_mot(m)
-        if corrige.lower() != m.lower():
-            a_change = True
-        mots_corriges.append(corrige)
+        inputs = tokenizer(prompt, return_tensors="pt").to(device)
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=45, do_sample=False, pad_token_id=tokenizer.eos_token_id)
+            
+        rep = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True).strip()
+        texte_corrige = rep.split("\n")[0].strip('\"\'')
         
-    phrase = " ".join(mots_corriges)
-    phrase_finale = corriger_grammaire(phrase)
-    
-    if a_change or phrase_finale.lower() != texte.lower():
-        return {
-            "texte_original": texte,
-            "texte_corrige": phrase_finale
-        }
+        if texte_corrige.startswith("Voici") or texte_corrige.startswith("Correction"):
+            texte_corrige = texte_corrige.split(":")[-1].strip()
+            
+        if texte_corrige and sans_accents(texte_corrige.lower()) != sans_accents(texte.lower()):
+            return {
+                "texte_original": texte,
+                "texte_corrige": texte_corrige
+            }
+    except Exception:
+        pass
         
     return None
