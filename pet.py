@@ -106,7 +106,7 @@ class RootPet:
         if self.etat not in ("marche", "pause"):
             return
             
-        bloquer() # bloque la frappe pendant l action de root
+        bloquer()
         self.faute_en_cours = faute_info
         sx, sy = get_exact_typing_pos()
         

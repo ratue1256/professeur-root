@@ -15,8 +15,6 @@ def analyser_texte(texte):
         return None
 
     p = texte
-    
-    # fautes de frappe et expressions courantes
     p = re.sub(r'\bsqlut\b', "salut", p, flags=re.IGNORECASE)
     p = re.sub(r'\b(je\s+)?mapple\b', "je m'appelle", p, flags=re.IGNORECASE)
     p = re.sub(r'\bcommennnt\b', "comment", p, flags=re.IGNORECASE)
@@ -26,8 +24,6 @@ def analyser_texte(texte):
     p = re.sub(r'\bcette\s+est\b', "c'est", p, flags=re.IGNORECASE)
     p = re.sub(r'\bc\s+est\b', "c'est", p, flags=re.IGNORECASE)
     p = re.sub(r'\b(sa|sq)\s+va\b', "ça va", p, flags=re.IGNORECASE)
-    
-    # conjugaison et accords
     p = re.sub(r'\b(il|elle|on)\s+doivent\b', r'\1 doit', p, flags=re.IGNORECASE)
     p = re.sub(r'\b(ils|elles)\s+doit\b', r'\1 doivent', p, flags=re.IGNORECASE)
     p = re.sub(r'\bpour\s+corrige\b', "pour corriger", p, flags=re.IGNORECASE)
@@ -41,7 +37,7 @@ def analyser_texte(texte):
     mots = p.split()
     mots_c = []
     for m in mots:
-        clean = m.lower().strip(".,!?:;\"()-_/")
+        clean = m.lower().strip(".,!?:;\"'()-_/")
         if "'" in clean or clean in PROTEGES or clean in spell or len(clean) <= 2:
             mots_c.append(m)
         else:
