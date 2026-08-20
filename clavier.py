@@ -1,77 +1,75 @@
 import time
-import os
 from pynput import keyboard
 from ia import check_sentence_errors
 
-# Controleur pynput pour la simulation de frappe
-key_controller = keyboard.Controller()
-
-# Buffer de texte pour accumuler la phrase courante
-current_buffer = ""
-last_keystroke_ts = 0.0
-on_error_found = None
-is_input_locked = False
+# listener clavier pour choper les phrases en direct
+kb_ctrl = keyboard.Controller()
+buf = ""
+last_t = 0.0
+on_typo = None
+locked = False
 
 def lock_input():
-    global is_input_locked
-    is_input_locked = True
+    global locked
+    locked = True
 
 def unlock_input():
-    global is_input_locked
-    is_input_locked = False
+    global locked
+    locked = False
 
-def start_keyboard_listener(on_typo_callback):
-    global on_error_found
-    on_error_found = on_typo_callback
+def handle_press(k):
+    global buf, last_t, locked
     
-    # Listener global en daemon thread
-    listener = keyboard.Listener(on_press=handle_key_press)
-    listener.daemon = True
-    listener.start()
-
-def handle_key_press(key):
-    global current_buffer, last_keystroke_ts, is_input_locked
-    
-    # Bloque les touches utilisateurs pendant que Root efface / retape
-    if is_input_locked:
+    # si root est en train de corriger on touche a rien
+    if locked:
         return
         
     try:
-        if hasattr(key, "char") and key.char:
-            current_buffer += key.char
-            last_keystroke_ts = time.time()
-            # Si ponctuation de fin de phrase, on analyse direct
-            if key.char in (".", "!", "?"):
-                process_buffer(force_reset=True)
-        elif key == keyboard.Key.space:
-            current_buffer += " "
-            last_keystroke_ts = time.time()
-        elif key == keyboard.Key.enter:
-            # Sur Entree, verifie avant de valider
-            process_buffer(force_reset=True)
-        elif key == keyboard.Key.backspace:
-            if current_buffer:
-                current_buffer = current_buffer[:-1]
-    except (AttributeError, TypeError):
+        # caractere normal
+        if hasattr(k, "char") and k.char is not None:
+            buf += k.char
+            last_t = time.time()
+            # fin de phrase direct
+            if k.char in (".", "!", "?", "\n"):
+                eval_buffer(force=True)
+        elif k == keyboard.Key.space:
+            buf += " "
+            last_t = time.time()
+        elif k == keyboard.Key.enter:
+            eval_buffer(force=True)
+        elif k == keyboard.Key.backspace:
+            buf = buf[:-1] if len(buf) > 0 else ""
+            last_t = time.time()
+    except Exception:
+        # pynput peut throw des trucs bizarres sur certaines touches speciales
         pass
 
-def process_buffer(force_reset=False):
-    global current_buffer
-    raw_text = current_buffer.strip()
+def eval_buffer(force=False):
+    global buf
+    txt = buf.strip()
     
-    # On n'analyse que si on a au moins 3 caracteres
-    if raw_text and len(raw_text) >= 3:
-        correction_result = check_sentence_errors(raw_text)
-        if correction_result and on_error_found:
+    # evite d'analyser pour 1 ou 2 lettres
+    if len(txt) >= 3:
+        res = check_sentence_errors(txt)
+        if res and on_typo:
             lock_input()
-            current_buffer = ""
-            on_error_found(correction_result)
-        elif force_reset:
-            current_buffer = ""
+            buf = ""
+            on_typo(res)
+            return
+            
+    if force:
+        buf = ""
 
 def check_typing_pause():
-    global current_buffer, last_keystroke_ts, is_input_locked
-    # Si l'utilisateur s'arrete d'ecrire pendant ~900ms, on analyse
-    if not is_input_locked and current_buffer.strip():
-        if time.time() - last_keystroke_ts > 0.9:
-            process_buffer(force_reset=False)
+    global buf, last_t, locked
+    # debounce d'environ 0.85s sans frappe pour laisser l'user reflechir
+    if not locked and len(buf.strip()) >= 3:
+        if (time.time() - last_t) > 0.85:
+            eval_buffer(force=False)
+
+def start_keyboard_listener(callback):
+    global on_typo
+    on_typo = callback
+    l = keyboard.Listener(on_press=handle_press)
+    l.daemon = True
+    l.start()
